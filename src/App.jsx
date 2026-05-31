@@ -1,5 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+const FINNHUB_KEY = "d8e922pr01qm5f80id3g";
+
+const FINNHUB_MAP = {
+  "NVDA": "NVDA",
+  "AAPL": "AAPL",
+  "MSFT": "MSFT",
+  "TSLA": "TSLA",
+  "SPY":  "SPY",
+  "GLD":  "GLD",
+  "VIX":  "VIX",
+  "BTC":  "BINANCE:BTCUSDT",
+  "ETH":  "BINANCE:ETHUSDT",
+  "SOL":  "BINANCE:SOLUSDT",
+  "NDX":  "QQQ",
+  "SPX":  "SPY",
+};
+
 const css = `
   :root {
     --obsidian: #080A0E;
@@ -301,6 +318,15 @@ function getFallback(opp) {
   };
 }
 
+function formatPrice(price, sym) {
+  if (!price) return null;
+  const num = parseFloat(price);
+  if (isNaN(num)) return null;
+  if (sym === "BTC" || sym === "ETH" || num > 10000) return num.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (num > 100) return num.toFixed(2);
+  return num.toFixed(4);
+}
+
 function SparklineChart({ up, width=120, height=40 }) {
   const pts = useRef(Array.from({ length:20 }, () => ({ y:(Math.random()-0.5)*8 }))).current;
   const cum = pts.reduce((acc, p, i) => {
@@ -376,26 +402,67 @@ export default function App() {
   const [activeSidebar, setActiveSidebar] = useState("overview");
   const [activeFeature, setActiveFeature] = useState(null);
   const [prices, setPrices] = useState({});
+  const [changes, setChanges] = useState({});
   const [rightTab, setRightTab] = useState("macro");
   const [showDetail, setShowDetail] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState(null);
   const [sentiment] = useState(71);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
+  // ── LIVE PRICES FROM FINNHUB ─────────────────────────────────────────────
   useEffect(() => {
-    const interval = setInterval(() => {
-      setPrices((prev) => {
-        const next = { ...prev };
-        TICKER_DATA.forEach((t) => {
-          const cur = parseFloat((prev[t.sym]||t.price).toString().replace(/,/g,""));
-          const delta = (Math.random()-0.5)*cur*0.0008;
-          next[t.sym] = (cur+delta).toFixed(cur>1000?0:cur>10?2:4);
+    const fetchAll = async () => {
+      const syms = Object.keys(FINNHUB_MAP);
+      try {
+        const results = await Promise.allSettled(
+          syms.map(sym =>
+            fetch(
+              `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(FINNHUB_MAP[sym])}&token=${FINNHUB_KEY}`
+            ).then(r => r.json())
+          )
+        );
+        setPrices(prev => {
+          const next = { ...prev };
+          syms.forEach((sym, i) => {
+            if (results[i].status === "fulfilled") {
+              const d = results[i].value;
+              if (d && d.c && d.c > 0) {
+                next[sym] = formatPrice(d.c, sym);
+              }
+            }
+          });
+          return next;
         });
-        return next;
-      });
-    }, 2000);
+        setChanges(prev => {
+          const next = { ...prev };
+          syms.forEach((sym, i) => {
+            if (results[i].status === "fulfilled") {
+              const d = results[i].value;
+              if (d && d.dp !== undefined) {
+                next[sym] = { pct: d.dp, up: d.dp >= 0 };
+              }
+            }
+          });
+          return next;
+        });
+        setLastUpdated(new Date().toLocaleTimeString());
+      } catch {
+        // silently keep previous prices
+      }
+    };
+    fetchAll();
+    const interval = setInterval(fetchAll, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  const getPrice = (sym, fallback) => prices[sym] || fallback;
+  const getChg = (sym, fallback, fallbackUp) => {
+    const c = changes[sym];
+    if (!c) return { label: fallback, up: fallbackUp };
+    const sign = c.up ? "+" : "";
+    return { label: `${sign}${c.pct.toFixed(2)}%`, up: c.up };
+  };
 
   const handleAIAnalysis = useCallback(async (opp) => {
     setShowDetail(opp);
@@ -427,21 +494,26 @@ export default function App() {
     <div className="aurum-platform">
       <div className="noise-overlay" />
 
+      {/* LIVE TICKER */}
       <div className="ticker-bar">
         <div className="ticker-label">LIVE</div>
         <div style={{ overflow:"hidden", flex:1 }}>
           <div className="ticker-track">
-            {[...TICKER_DATA,...TICKER_DATA].map((t,i) => (
-              <div key={i} className="ticker-item">
-                <span className="ticker-sym">{t.sym}</span>
-                <span className="ticker-price">{prices[t.sym]||t.price}</span>
-                <span className={t.up?"tick-up":"tick-dn"}>{t.chg}</span>
-              </div>
-            ))}
+            {[...TICKER_DATA,...TICKER_DATA].map((t,i) => {
+              const chg = getChg(t.sym, t.chg, t.up);
+              return (
+                <div key={i} className="ticker-item">
+                  <span className="ticker-sym">{t.sym}</span>
+                  <span className="ticker-price">{getPrice(t.sym, t.price)}</span>
+                  <span className={chg.up?"tick-up":"tick-dn"}>{chg.label}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
+      {/* NAV */}
       <nav className="nav">
         <div className="brand">
           <BrandMark />
@@ -458,11 +530,15 @@ export default function App() {
         </div>
         <div className="nav-right">
           <div className="status-dot" />
-          <div className="status-text">MARKETS LIVE</div>
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end" }}>
+            <div className="status-text">MARKETS LIVE</div>
+            {lastUpdated && <div style={{ fontSize:7, color:"var(--ash)", letterSpacing:"0.08em" }}>Updated {lastUpdated}</div>}
+          </div>
           <button className="connect-btn">Connect Portfolio</button>
         </div>
       </nav>
 
+      {/* MAIN */}
       <div className="main-grid">
         <aside className="sidebar">
           <div className="sidebar-section">
@@ -515,7 +591,7 @@ export default function App() {
               </div>
               <div style={{ textAlign:"right" }}>
                 <div className="hero-date">{today}</div>
-                <div style={{ fontSize:9, color:"var(--smoke)", marginTop:4, letterSpacing:"0.1em" }}>IIC ENGINE v4.2</div>
+                <div style={{ fontSize:9, color:"var(--smoke)", marginTop:4, letterSpacing:"0.1em" }}>IIC ENGINE v4.2 · FINNHUB LIVE</div>
               </div>
             </div>
             <div className="regime-bar">
@@ -568,42 +644,46 @@ export default function App() {
             <div className="section-action">All Signals →</div>
           </div>
           <div className="opportunity-grid">
-            {OPPORTUNITIES.map((opp) => (
-              <div key={opp.sym} className={`opp-card ${opp.type}`}
-                style={{ animationDelay:opp.delay }} onClick={() => handleAIAnalysis(opp)}>
-                <div className="opp-header">
-                  <div>
-                    <div className="opp-sym">{opp.sym}</div>
-                    <div className="opp-name">{opp.name}</div>
+            {OPPORTUNITIES.map((opp) => {
+              const livePrice = getPrice(opp.sym, opp.price);
+              const liveChg = getChg(opp.sym, opp.chg, opp.up);
+              return (
+                <div key={opp.sym} className={`opp-card ${opp.type}`}
+                  style={{ animationDelay:opp.delay }} onClick={() => handleAIAnalysis({ ...opp, price: livePrice })}>
+                  <div className="opp-header">
+                    <div>
+                      <div className="opp-sym">{opp.sym}</div>
+                      <div className="opp-name">{opp.name}</div>
+                    </div>
+                    <div className={`opp-action ${opp.action}`}>{opp.action.toUpperCase()}</div>
                   </div>
-                  <div className={`opp-action ${opp.action}`}>{opp.action.toUpperCase()}</div>
-                </div>
-                <div className="opp-price-row">
-                  <div className="opp-price">{prices[opp.sym]||opp.price}</div>
-                  <div style={{ fontSize:11, color:opp.up?"var(--emerald)":"var(--ruby)" }}>{opp.chg}</div>
-                </div>
-                <SparklineChart up={opp.up} width={130} height={36} />
-                <div className="conviction-bar">
-                  <div className="conviction-label">
-                    <span>AI Conviction</span>
-                    <span style={{ color:opp.conviction>80?"var(--emerald)":opp.conviction>65?"var(--aurum)":"var(--ruby)" }}>
-                      {opp.conviction}% · {opp.convLabel}
-                    </span>
+                  <div className="opp-price-row">
+                    <div className="opp-price">{livePrice}</div>
+                    <div style={{ fontSize:11, color:liveChg.up?"var(--emerald)":"var(--ruby)" }}>{liveChg.label}</div>
                   </div>
-                  <div className="conviction-track">
-                    <div className={`conviction-fill ${opp.conviction>80?"high":opp.conviction>65?"mid":"low"}`}
-                      style={{ width:`${opp.conviction}%` }} />
+                  <SparklineChart up={liveChg.up} width={130} height={36} />
+                  <div className="conviction-bar">
+                    <div className="conviction-label">
+                      <span>AI Conviction</span>
+                      <span style={{ color:opp.conviction>80?"var(--emerald)":opp.conviction>65?"var(--aurum)":"var(--ruby)" }}>
+                        {opp.conviction}% · {opp.convLabel}
+                      </span>
+                    </div>
+                    <div className="conviction-track">
+                      <div className={`conviction-fill ${opp.conviction>80?"high":opp.conviction>65?"mid":"low"}`}
+                        style={{ width:`${opp.conviction}%` }} />
+                    </div>
                   </div>
+                  <div className="opp-targets">
+                    <div className="target-box"><div className="target-label">Entry</div><div className="target-val">{opp.entry}</div></div>
+                    <div className="target-box"><div className="target-label">Target</div><div className="target-val" style={{ color:"var(--emerald)" }}>{opp.target}</div></div>
+                    <div className="target-box"><div className="target-label">Stop</div><div className="target-val" style={{ color:"var(--ruby)" }}>{opp.stop}</div></div>
+                    <div className="target-box"><div className="target-label">Size</div><div className="target-val" style={{ color:"var(--aurum)" }}>{opp.size}</div></div>
+                  </div>
+                  <div className="click-hint">Tap for AI deep analysis →</div>
                 </div>
-                <div className="opp-targets">
-                  <div className="target-box"><div className="target-label">Entry</div><div className="target-val">{opp.entry}</div></div>
-                  <div className="target-box"><div className="target-label">Target</div><div className="target-val" style={{ color:"var(--emerald)" }}>{opp.target}</div></div>
-                  <div className="target-box"><div className="target-label">Stop</div><div className="target-val" style={{ color:"var(--ruby)" }}>{opp.stop}</div></div>
-                  <div className="target-box"><div className="target-label">Size</div><div className="target-val" style={{ color:"var(--aurum)" }}>{opp.size}</div></div>
-                </div>
-                <div className="click-hint">Tap for AI deep analysis →</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="section-header">
@@ -674,13 +754,15 @@ export default function App() {
           <div style={{ padding:"0 28px 24px" }}>
             <div className="heatmap-grid">
               {HEATMAP_DATA.map((h) => {
-                const abs=Math.min(Math.abs(h.pct)/5,1);
-                const bg=h.pct>=0?`rgba(29,184,122,${0.15+abs*0.65})`:`rgba(232,69,90,${0.15+abs*0.65})`;
+                const liveChg = changes[h.sym];
+                const pct = liveChg ? parseFloat(liveChg.pct.toFixed(2)) : h.pct;
+                const abs=Math.min(Math.abs(pct)/5,1);
+                const bg=pct>=0?`rgba(29,184,122,${0.15+abs*0.65})`:`rgba(232,69,90,${0.15+abs*0.65})`;
                 return (
                   <div key={h.sym} className="hm-cell" style={{ background:bg }}>
                     <div className="hm-sym">{h.sym}</div>
-                    <div className="hm-pct" style={{ fontSize:10, color:h.pct>=0?"rgba(180,255,220,0.9)":"rgba(255,180,180,0.9)" }}>
-                      {h.pct>=0?"+":""}{h.pct}%
+                    <div className="hm-pct" style={{ fontSize:10, color:pct>=0?"rgba(180,255,220,0.9)":"rgba(255,180,180,0.9)" }}>
+                      {pct>=0?"+":""}{pct}%
                     </div>
                   </div>
                 );
@@ -823,7 +905,7 @@ export default function App() {
           </div>
 
           <div style={{ padding:"16px 20px", fontSize:8, color:"var(--ash)", lineHeight:1.6, borderTop:"1px solid var(--fog)", marginTop:"auto" }}>
-            AURUM Intelligence Platform · For informational purposes only. Not financial advice. All investments carry risk of capital loss.
+            AURUM Intelligence Platform · For informational purposes only. Not financial advice. All investments carry risk of capital loss. Prices from Finnhub — 15s delay.
           </div>
         </aside>
       </div>
@@ -845,7 +927,7 @@ export default function App() {
             <div className="detail-body">
               <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:20 }}>
                 {[
-                  { label:"Price", val:prices[showDetail.sym]||showDetail.price },
+                  { label:"Price", val:showDetail.price },
                   { label:"Action", val:showDetail.action.toUpperCase(), color:showDetail.action==="buy"?"var(--emerald)":showDetail.action==="sell"?"var(--ruby)":"var(--aurum)" },
                   { label:"Conviction", val:`${showDetail.conviction}%`, color:"var(--aurum)" },
                   { label:"Entry", val:showDetail.entry },
