@@ -214,18 +214,18 @@ if (!document.getElementById("aurum-styles")) {
 }
 
 const TICKER_DATA = [
-  { sym: "SPX", price: "5,847.22", chg: "+1.23%", up: true },
-  { sym: "NDX", price: "21,042.55", chg: "+1.87%", up: true },
-  { sym: "BTC", price: "108,244", chg: "+3.41%", up: true },
-  { sym: "ETH", price: "3,891.22", chg: "+2.15%", up: true },
-  { sym: "GLD", price: "3,284.50", chg: "-0.32%", up: false },
-  { sym: "DXY", price: "101.24", chg: "-0.44%", up: false },
-  { sym: "WTI", price: "78.82", chg: "+1.12%", up: true },
-  { sym: "AAPL", price: "212.45", chg: "+2.31%", up: true },
-  { sym: "NVDA", price: "1,128.30", chg: "+4.62%", up: true },
-  { sym: "MSFT", price: "448.90", chg: "+1.45%", up: true },
-  { sym: "TSLA", price: "342.18", chg: "-1.22%", up: false },
-  { sym: "VIX", price: "14.22", chg: "-0.88%", up: false },
+  { sym:"SPX", price:"5,847.22", chg:"+1.23%", up:true },
+  { sym:"NDX", price:"21,042.55", chg:"+1.87%", up:true },
+  { sym:"BTC", price:"108,244", chg:"+3.41%", up:true },
+  { sym:"ETH", price:"3,891.22", chg:"+2.15%", up:true },
+  { sym:"GLD", price:"3,284.50", chg:"-0.32%", up:false },
+  { sym:"DXY", price:"101.24", chg:"-0.44%", up:false },
+  { sym:"WTI", price:"78.82", chg:"+1.12%", up:true },
+  { sym:"AAPL", price:"212.45", chg:"+2.31%", up:true },
+  { sym:"NVDA", price:"1,128.30", chg:"+4.62%", up:true },
+  { sym:"MSFT", price:"448.90", chg:"+1.45%", up:true },
+  { sym:"TSLA", price:"342.18", chg:"-1.22%", up:false },
+  { sym:"VIX", price:"14.22", chg:"-0.88%", up:false },
 ];
 
 const OPPORTUNITIES = [
@@ -288,17 +288,30 @@ const FEATURES = [
   "Autonomous Rebalancer","Stress Test Simulator","Drawdown Shield",
 ];
 
-function SparklineChart({ up, width = 120, height = 40 }) {
-  const pts = useRef(Array.from({ length: 20 }, () => ({ y: (Math.random() - 0.5) * 8 }))).current;
+function getFallback(opp) {
+  return {
+    thesis: `${opp.sym} presents a high-conviction ${opp.action} opportunity backed by institutional flow data and a clear technical structure. The risk/reward asymmetry strongly favors initiating a position within the defined entry zone.`,
+    fundamental: "Earnings growth accelerating quarter-over-quarter. Margins expanding with improving free cash flow generation. Balance sheet remains robust with manageable leverage.",
+    technical: "Price holding above all key moving averages with volume confirmation on breakout. Market structure bullish. Momentum indicators aligned with the primary trend.",
+    macro: "Risk-on macro environment prevailing. Liquidity conditions remain supportive. Sector rotation and institutional positioning favor this asset class.",
+    keyRisk: "An unexpected macro shock, Fed policy surprise, or sharp sector rotation could disrupt the thesis. Position sizing must reflect this tail risk.",
+    invalidation: `A decisive daily close below $${opp.stop} on above-average volume would invalidate this setup and require an immediate exit.`,
+    timeHorizon: "2–6 weeks",
+    asymmetry: "3.2:1 risk/reward",
+  };
+}
+
+function SparklineChart({ up, width=120, height=40 }) {
+  const pts = useRef(Array.from({ length:20 }, () => ({ y:(Math.random()-0.5)*8 }))).current;
   const cum = pts.reduce((acc, p, i) => {
-    if (i === 0) return [20];
-    return [...acc, Math.max(2, Math.min(38, acc[acc.length - 1] + p.y * (up ? 0.6 : -0.6)))];
+    if (i===0) return [20];
+    return [...acc, Math.max(2, Math.min(38, acc[acc.length-1]+p.y*(up?0.6:-0.6)))];
   }, []);
-  const minY = Math.min(...cum), maxY = Math.max(...cum);
-  const sx = (i) => (i / 19) * width;
-  const sy = (y) => height - ((y - minY) / (maxY - minY + 1)) * (height - 4) - 2;
-  const d = cum.map((y, i) => `${i === 0 ? "M" : "L"}${sx(i)},${sy(y)}`).join(" ");
-  const color = up ? "#1DB87A" : "#E8455A";
+  const minY=Math.min(...cum), maxY=Math.max(...cum);
+  const sx=(i)=>(i/19)*width;
+  const sy=(y)=>height-((y-minY)/(maxY-minY+1))*(height-4)-2;
+  const d=cum.map((y,i)=>`${i===0?"M":"L"}${sx(i)},${sy(y)}`).join(" ");
+  const color=up?"#1DB87A":"#E8455A";
   return (
     <svg width={width} height={height} style={{ overflow:"visible" }}>
       <defs>
@@ -314,10 +327,10 @@ function SparklineChart({ up, width = 120, height = 40 }) {
 }
 
 function SentimentArc({ score }) {
-  const color = score > 65 ? "#1DB87A" : score > 40 ? "#C9A84C" : "#E8455A";
-  const label = score > 65 ? "Greed" : score > 40 ? "Neutral" : "Fear";
-  const circ = Math.PI * 52;
-  const offset = circ - (score / 100) * circ;
+  const color=score>65?"#1DB87A":score>40?"#C9A84C":"#E8455A";
+  const label=score>65?"Greed":score>40?"Neutral":"Fear";
+  const circ=Math.PI*52;
+  const offset=circ-(score/100)*circ;
   return (
     <div style={{ textAlign:"center" }}>
       <svg width={130} height={72} viewBox="0 0 130 72">
@@ -374,9 +387,9 @@ export default function App() {
       setPrices((prev) => {
         const next = { ...prev };
         TICKER_DATA.forEach((t) => {
-          const cur = parseFloat((prev[t.sym] || t.price).toString().replace(/,/g, ""));
-          const delta = (Math.random() - 0.5) * cur * 0.0008;
-          next[t.sym] = (cur + delta).toFixed(cur > 1000 ? 0 : cur > 10 ? 2 : 4);
+          const cur = parseFloat((prev[t.sym]||t.price).toString().replace(/,/g,""));
+          const delta = (Math.random()-0.5)*cur*0.0008;
+          next[t.sym] = (cur+delta).toFixed(cur>1000?0:cur>10?2:4);
         });
         return next;
       });
@@ -395,18 +408,13 @@ export default function App() {
         body: JSON.stringify({ opp }),
       });
       const data = await res.json();
-      setAiResponse(data);
+      if (data && data.thesis && data.fundamental) {
+        setAiResponse(data);
+      } else {
+        setAiResponse(getFallback(opp));
+      }
     } catch {
-      setAiResponse({
-        thesis: `${opp.sym} presents a compelling ${opp.action} opportunity with strong momentum and institutional backing.`,
-        fundamental: "Earnings growth accelerating, margins expanding, strong balance sheet.",
-        technical: "Price action above key moving averages with volume confirmation.",
-        macro: "Favorable macro environment with risk-on sentiment prevailing.",
-        keyRisk: "Macro deterioration or sector rotation could invalidate the setup.",
-        invalidation: `Close below $${opp.stop} on volume would negate the thesis.`,
-        timeHorizon: "2–6 weeks",
-        asymmetry: "3.2:1 risk/reward",
-      });
+      setAiResponse(getFallback(opp));
     }
     setAiLoading(false);
   }, []);
@@ -423,11 +431,11 @@ export default function App() {
         <div className="ticker-label">LIVE</div>
         <div style={{ overflow:"hidden", flex:1 }}>
           <div className="ticker-track">
-            {[...TICKER_DATA, ...TICKER_DATA].map((t, i) => (
+            {[...TICKER_DATA,...TICKER_DATA].map((t,i) => (
               <div key={i} className="ticker-item">
                 <span className="ticker-sym">{t.sym}</span>
-                <span className="ticker-price">{prices[t.sym] || t.price}</span>
-                <span className={t.up ? "tick-up" : "tick-dn"}>{t.chg}</span>
+                <span className="ticker-price">{prices[t.sym]||t.price}</span>
+                <span className={t.up?"tick-up":"tick-dn"}>{t.chg}</span>
               </div>
             ))}
           </div>
@@ -571,7 +579,7 @@ export default function App() {
                   <div className={`opp-action ${opp.action}`}>{opp.action.toUpperCase()}</div>
                 </div>
                 <div className="opp-price-row">
-                  <div className="opp-price">{prices[opp.sym] || opp.price}</div>
+                  <div className="opp-price">{prices[opp.sym]||opp.price}</div>
                   <div style={{ fontSize:11, color:opp.up?"var(--emerald)":"var(--ruby)" }}>{opp.chg}</div>
                 </div>
                 <SparklineChart up={opp.up} width={130} height={36} />
@@ -666,8 +674,8 @@ export default function App() {
           <div style={{ padding:"0 28px 24px" }}>
             <div className="heatmap-grid">
               {HEATMAP_DATA.map((h) => {
-                const abs = Math.min(Math.abs(h.pct)/5,1);
-                const bg = h.pct>=0?`rgba(29,184,122,${0.15+abs*0.65})`:`rgba(232,69,90,${0.15+abs*0.65})`;
+                const abs=Math.min(Math.abs(h.pct)/5,1);
+                const bg=h.pct>=0?`rgba(29,184,122,${0.15+abs*0.65})`:`rgba(232,69,90,${0.15+abs*0.65})`;
                 return (
                   <div key={h.sym} className="hm-cell" style={{ background:bg }}>
                     <div className="hm-sym">{h.sym}</div>
